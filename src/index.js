@@ -2,15 +2,26 @@ import 'dotenv/config';
 import { Client, GatewayIntentBits, REST, Routes, ChannelType, PermissionsBitField } from 'discord.js';
 import axios from 'axios';
 import fs from 'fs';
+import path from 'path';
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const POLL_INTERVAL = Number(process.env.POLL_INTERVAL_MS || 60000);
 const DEFAULT_DELAY_SEC = Math.min(300, Math.max(0, Number(process.env.DEFAULT_DELAY_SECONDS || 0)));
 
+const BOT_PERMISSIONS = Number(process.env.BOT_PERMISSIONS || 3072);
+
 const DATA_PATH = './data/subscriptions.json';
 const data = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
 if (!data.liveCache) data.liveCache = {};
+const CHAT_LOG_PATH = process.env.CHAT_LOG_PATH || './data/chat_history.ndjson';
+function logEvent(obj) {
+  try {
+    fs.mkdirSync(path.dirname(CHAT_LOG_PATH), { recursive: true });
+    fs.appendFileSync(CHAT_LOG_PATH, JSON.stringify(obj) + '\n');
+  } catch {}
+}
+
 if (!data.pending) data.pending = {};
 if (!data.adminRoles) data.adminRoles = {};
 function save() { fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2)); }
@@ -155,7 +166,8 @@ const commands = [
       { type: 1, name: 'remove', description: 'Disallow a role', options: [ { type: 8, name: 'role', description: 'Role', required: true } ] },
       { type: 1, name: 'list', description: 'List allowed roles' }
     ]
-  }
+  },
+  { name: 'invite', description: 'Get the bot invite link' }
 ];
 
 async function registerCommands() {
@@ -163,14 +175,17 @@ async function registerCommands() {
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
 }
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await registerCommands();
+  const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`;
+  console.log('Invite:', url);
   setInterval(checkStreams, POLL_INTERVAL);
 });
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+  logEvent({ t: new Date().toISOString(), type: 'interaction', guildId: interaction.guildId, channelId: interaction.channelId, userId: interaction.user.id, cmd: interaction.commandName, sub: interaction.options.getSubcommand(false) ?? null });
 
   if (interaction.commandName === 'help') {
     const text = [
@@ -182,19 +197,25 @@ client.on('interactionCreate', async (interaction) => {
       '- /announce setmessage channel:#ch service:(twitch|kick|rumble) username:<name> message:"template"',
       '- /announce setdelay service:(twitch|kick|rumble) username:<name> delay:0-300',
       '- /adminrole add role:@Role | remove role:@Role | list',
+      '- /invite',
       '',
       'Notes:',
       '- Server owner/Admins always have access. Optionally allow roles via /adminrole.',
       '- Templates: {role} {user} {service} {title} {url}.',
       '- Delay waits before posting after live detected (max 300s).'
     ].join('\n');
-    await interaction.reply({ content: text, ephemeral: true });
+    await interaction.reply({ content: text, flags: 64 });
     return;
+  }
+
+  if (interaction.commandName === 'invite') {
+    const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`;
+    return interaction.reply({ content: url, flags: 64 });
   }
 
   if (interaction.commandName === 'adminrole') {
     if (!isOwnerOrAdmin(interaction)) {
-      return interaction.reply({ content: 'You need Manage Server permission.', ephemeral: true });
+      return interaction.reply({ content: 'You need Manage Server permission.', flags: 64 });
     }
     const sub = interaction.options.getSubcommand();
     if (sub === 'add') {
@@ -202,7 +223,7 @@ client.on('interactionCreate', async (interaction) => {
       const list = (data.adminRoles[interaction.guildId] ||= []);
       if (!list.includes(role.id)) list.push(role.id);
       save();
-      return interaction.reply({ content: `Allowed role ${role}` , ephemeral: true});
+      return interaction.reply({ content: `Allowed role ${role}` , flags: 64});
     }
     if (sub === 'remove') {
       const role = interaction.options.getRole('role', true);
@@ -210,12 +231,12 @@ client.on('interactionCreate', async (interaction) => {
       const before = list.length;
       data.adminRoles[interaction.guildId] = list.filter(id => id !== role.id);
       save();
-      return interaction.reply({ content: before !== data.adminRoles[interaction.guildId].length ? `Removed role ${role}` : 'Role not in allowlist.', ephemeral: true });
+      return interaction.reply({ content: before !== data.adminRoles[interaction.guildId].length ? `Removed role ${role}` : 'Role not in allowlist.', flags: 64 });
     }
     if (sub === 'list') {
       const list = data.adminRoles[interaction.guildId] || [];
       const content = list.length ? list.map(id => `<@&${id}>`).join(', ') : 'No roles allowed. Only Admins/Owners can use commands.';
-      return interaction.reply({ content, ephemeral: true });
+      return interaction.reply({ content, flags: 64 });
     }
     return;
   }
@@ -223,14 +244,14 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName !== 'announce') return;
 
   if (!canUseAnnounce(interaction)) {
-    return interaction.reply({ content: 'You lack permission for this command.', ephemeral: true });
+    return interaction.reply({ content: 'You lack permission for this command.', flags: 64 });
   }
 
   const sub = interaction.options.getSubcommand();
   if (sub === 'add') {
     const channel = interaction.options.getChannel('channel', true);
     if (channel.type !== ChannelType.GuildText) {
-      return interaction.reply({ content: 'Select a text channel.', ephemeral: true });
+      return interaction.reply({ content: 'Select a text channel.', flags: 64 });
     }
     const service = interaction.options.getString('service', true);
     const user = interaction.options.getString('username', true).toLowerCase();
@@ -326,6 +347,7 @@ async function checkStreams() {
             const roleMention = s.roleId ? `<@&${s.roleId}>` : '';
             const content = formatMessage(s.template, { role: roleMention, user: s.user, service: s.service, title: info.title, url: info.url });
             await channel.send({ content });
+            logEvent({ t: new Date().toISOString(), type: 'announcement', guildId: s.guildId, channelId: s.channelId, service: s.service, user: s.user, url: info.url });
           }
           data.liveCache[key] = true;
           delete data.pending[key];

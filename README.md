@@ -3,7 +3,9 @@
 Posts go-live announcements for Twitch, Kick, and Rumble to configured channels. Admins manage channels, services, roles, and custom messages via slash commands.
 
 Setup
-- Create a Discord application and bot token. Invite with bot + applications.commands scopes. Required intents: Guilds.
+- Create a Discord application and bot token. Required intents: Guilds.
+- Invite link: https://discord.com/api/oauth2/authorize?client_id=YOUR_DISCORD_APPLICATION_ID&scope=bot%20applications.commands&permissions=BOT_PERMISSIONS (set in .env, default 3072)
+- .env: BOT_PERMISSIONS controls the invite permissions bitfield.
 - No API keys required; bot scrapes public channel pages using usernames only.
 - Create .env with:
   DISCORD_TOKEN=
@@ -29,6 +31,7 @@ Commands
 - /announce setmessage channel:#channel service:(twitch|kick|rumble) username:<name> message:"template"
 - /announce setdelay service:(twitch|kick|rumble) username:<name> delay:<0-300s>
 - /adminrole add role:@Role | remove role:@Role | list
+- /invite — get the bot invite link
 
 Permissions
 - Server owner/Admins always have access.
