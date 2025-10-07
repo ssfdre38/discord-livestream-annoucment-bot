@@ -88,6 +88,14 @@ function canUseAnnounce(interaction) {
   return hasAllowRole(interaction.member, interaction.guildId);
 }
 
+async function checkSingleStatus(service, user) {
+  user = user.toLowerCase();
+  if (service === 'twitch') return !!(await getTwitchStatus([user]))[user];
+  if (service === 'kick') return !!(await getKickStatus([user]))[user];
+  if (service === 'rumble') return !!(await getRumbleStatus([user]))[user];
+  return false;
+}
+
 function formatMessage(template, ctx) {
   const base = template || '{role} {user} is now live on {service}! {title} — {url}';
   return base
@@ -167,7 +175,15 @@ const commands = [
       { type: 1, name: 'list', description: 'List allowed roles' }
     ]
   },
-  { name: 'invite', description: 'Get the bot invite link' }
+  { name: 'invite', description: 'Get the bot invite link' },
+  {
+    name: 'check',
+    description: 'Check live status for a channel',
+    options: [
+      { type: 3, name: 'service', description: 'Streaming service', required: true, choices: serviceChoices },
+      { type: 3, name: 'username', description: 'Channel username', required: true }
+    ]
+  }
 ];
 
 async function registerCommands() {
@@ -198,6 +214,7 @@ client.on('interactionCreate', async (interaction) => {
       '- /announce setdelay service:(twitch|kick|rumble) username:<name> delay:0-300',
       '- /adminrole add role:@Role | remove role:@Role | list',
       '- /invite',
+      '- /check service:(twitch|kick|rumble) username:<name>',
       '',
       'Notes:',
       '- Server owner/Admins always have access. Optionally allow roles via /adminrole.',
@@ -211,6 +228,13 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'invite') {
     const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`;
     return interaction.reply({ content: url, flags: 64 });
+  }
+
+  if (interaction.commandName === 'check') {
+    const service = interaction.options.getString('service', true);
+    const user = interaction.options.getString('username', true);
+    const live = await checkSingleStatus(service, user);
+    return interaction.reply({ content: `[${service}] ${user}: ${live ? 'Live' : 'Offline'}`, flags: 64 });
   }
 
   if (interaction.commandName === 'adminrole') {
