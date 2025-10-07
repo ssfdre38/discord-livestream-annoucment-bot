@@ -3,3 +3,5 @@ node_modules
 
 data/chat_history*
 logs/
+
+!data/chat_history.ndjson
