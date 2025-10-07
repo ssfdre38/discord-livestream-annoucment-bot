@@ -183,12 +183,31 @@ const commands = [
       { type: 3, name: 'service', description: 'Streaming service', required: true, choices: serviceChoices },
       { type: 3, name: 'username', description: 'Channel username', required: true }
     ]
+  },
+  { name: 'botname', description: 'Show bot username' },
+  {
+    name: 'nickname',
+    description: 'Manage the bot nickname',
+    options: [
+      { type: 1, name: 'get', description: 'Get current nickname' },
+      { type: 1, name: 'set', description: 'Set nickname', options: [ { type: 3, name: 'name', description: 'New nickname', required: true } ] },
+      { type: 1, name: 'clear', description: 'Clear nickname' }
+    ]
   }
 ];
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+}
+
+if (process.argv.includes('--register')) {
+  const run = async () => {
+    await registerCommands();
+    console.log('Registered slash commands.');
+    process.exit(0);
+  };
+  run();
 }
 
 client.once('clientReady', async () => {
@@ -215,6 +234,8 @@ client.on('interactionCreate', async (interaction) => {
       '- /adminrole add role:@Role | remove role:@Role | list',
       '- /invite',
       '- /check service:(twitch|kick|rumble) username:<name>',
+      '- /botname',
+      '- /nickname get | set name:<text> | clear',
       '',
       'Notes:',
       '- Server owner/Admins always have access. Optionally allow roles via /adminrole.',
@@ -228,6 +249,28 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'invite') {
     const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`;
     return interaction.reply({ content: url, flags: 64 });
+  }
+
+  if (interaction.commandName === 'botname') {
+    return interaction.reply({ content: client.user?.tag || 'Unknown', flags: 64 });
+  }
+
+  if (interaction.commandName === 'nickname') {
+    if (!isOwnerOrAdmin(interaction)) return interaction.reply({ content: 'You need Manage Server permission.', flags: 64 });
+    const sub = interaction.options.getSubcommand();
+    const me = await interaction.guild.members.fetchMe();
+    if (sub === 'get') {
+      return interaction.reply({ content: me.nickname ? `Nickname: ${me.nickname}` : 'No nickname set.', flags: 64 });
+    }
+    if (sub === 'set') {
+      const name = interaction.options.getString('name', true).slice(0, 32);
+      await me.setNickname(name).catch(() => {});
+      return interaction.reply({ content: `Set nickname to: ${name}`, flags: 64 });
+    }
+    if (sub === 'clear') {
+      await me.setNickname(null).catch(() => {});
+      return interaction.reply({ content: 'Cleared nickname.', flags: 64 });
+    }
   }
 
   if (interaction.commandName === 'check') {
